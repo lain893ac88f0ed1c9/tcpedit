@@ -2,8 +2,10 @@
 #include <stdlib.h>
 #include <unistd.h> //getopt
 #include <ctype.h> //isprint
+#include <arpa/inet.h>
 #include <string.h>
 #include <pcap.h>
+#include <stdint.h>
 #include "sniff.h"
 
 void got_packet(u_char *args, const struct pcap_pkthdr *header,
@@ -13,8 +15,9 @@ int main(int argc, char *argv[])
 {
     int opt = 0;
     int ret = 0;
-    char *filter_exp; // the only filter for right now is port number 
-    char *port = malloc(20); // "port #####"
+    char *lport = malloc(20);
+    uint16_t rport = 0;
+    char *filter_exp = {0}; // the only filter for right now is port number 
     pcap_t *handle;
     char *dev = "wlan0";
     char errbuf[PCAP_ERRBUF_SIZE];
@@ -25,33 +28,20 @@ int main(int argc, char *argv[])
     const unsigned char *packet;
     struct sniff_ip test;
 
-    // get arguments
-    while((opt = getopt(argc, argv, ":p:w:")) != -1)
+    if(argc < 3)
     {
-        switch(opt)
-        {
-            case 'w':
-            case 'p':;
-
-                unsigned n = 1;
-                ret = sscanf(optarg, "%u", &n);
-                if(ret <= 0 || n > 65535)
-                {
-                    puts("invalid port number.\n");
-                    return 5;
-                }
-
-                printf("ret == %d\n", ret);
-                sprintf(port, "port %u", n);
-                filter_exp = strdup(port);
-
-                break;
-            default:
-                break;
-        }
+        puts("At least 2 arguments required.");
+        printf("Usage: %s lport rport\n", argv[0]);
+        return 5;
     }
 
-    puts(port);
+    int n = 0;
+    sscanf(argv[optind], "%hu", &n);
+    sprintf(lport, "port %hu", n);
+    puts(lport);
+    sscanf(argv[optind+1], "%hu", &rport);
+
+    filter_exp = strdup(lport);
 
     if(pcap_lookupnet(dev, &net, &mask, errbuf) == -1)
     {
@@ -104,8 +94,8 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header,
     const struct sniff_tcp *tcp; /* The TCP header */
     const char *payload; /* Packet payload */
 
-    u_int size_ip;
-    u_int size_tcp;
+    unsigned size_ip;
+    unsigned size_tcp;
 
     ethernet = (struct sniff_ethernet*)(packet);
     ip = (struct sniff_ip*)(packet + SIZE_ETHERNET);
@@ -120,21 +110,16 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header,
         printf("   * Invalid TCP header length: %u bytes\n", size_tcp);
         return;
     }
-    payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_tcp);
 
-    int i = 0;
+    char *ip_address = malloc(INET_ADDRSTRLEN);
 
-    while(i < header->len)
-    {
-         //isprint, is the character printable?
-        if(isprint(payload[i]))
-            putchar(payload[i]);
-        else
-            putchar('.');
+    inet_ntop(AF_INET, &ip->ip_src, ip_address, INET_ADDRSTRLEN);
+    printf("source ip address: %s\n", ip_address);
 
-        i++;
-    }
+    inet_ntop(AF_INET, &ip->ip_dst, ip_address, INET_ADDRSTRLEN);
+    printf("dest ip address: %s\n", ip_address); 
 
-    putchar('\n');
-
+    printf("sport: %hu\n", ntohs(tcp->th_sport));
+    printf("dport: %hu\n", ntohs(tcp->th_dport));
 }
+
