@@ -14,6 +14,11 @@
 #include <stdint.h>
 #include "sniff.h"
 
+// arguments struct (got_packet)
+typedef struct {
+    pcap_t *_handle;
+} configuration;
+
 void got_packet(u_char *args, const struct pcap_pkthdr *header,
     const u_char *packet);
 
@@ -22,20 +27,22 @@ int main(int argc, char *argv[])
     // my declarations
     int opt = 0;
     int ret = 0; // used to check return values
-    char *lport = malloc(20);
     uint16_t rport = 0;
+    char *lport = malloc(20);
     struct sniff_ip test;
 
     // libpcap common declarations
-    char *filter_exp; 
     pcap_t *handle;
+    char *filter_exp; 
     char *dev = "wlan0";
+    const unsigned char *packet;
     char errbuf[PCAP_ERRBUF_SIZE];
-    struct bpf_program fp;
     bpf_u_int32 mask;
     bpf_u_int32 net;
+    struct bpf_program fp;
     struct pcap_pkthdr header;
-    const unsigned char *packet;
+
+    configuration config[1];
 
     // make sure the programs has enough args
     if(argc < 3)
@@ -47,8 +54,8 @@ int main(int argc, char *argv[])
 
     // little error check    
     // these will go in their own function later
-    int n = 0;
-    ret = sscanf(argv[optind], "%hu", &n);
+    int portnum = 0;
+    ret = sscanf(argv[optind], "%hu", &portnum);
     if(ret < 1)
     {
         puts("Error: unable to read port number from input.");
@@ -56,7 +63,7 @@ int main(int argc, char *argv[])
     }
 
     // port number goes in bpf filter format
-    sprintf(lport, "port %hu", n);
+    sprintf(lport, "port %hu", portnum);
 
     // rport isn't used (yet)
     sscanf(argv[optind+1], "%hu", &rport);
@@ -72,6 +79,7 @@ int main(int argc, char *argv[])
     }
 
     handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
+    config->_handle = handle;
     if(handle == NULL)
     {
         fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
@@ -100,7 +108,8 @@ int main(int argc, char *argv[])
     }
     /*{{-----------------------libpcap setup end-------------------------------}}*/
 
-    pcap_loop(handle, -1, got_packet, NULL);
+    printf("%p\n", handle);
+    pcap_loop(handle, -1, got_packet, (u_char *)config);
     pcap_close(handle);
 }
 
@@ -108,6 +117,9 @@ int main(int argc, char *argv[])
 void got_packet(u_char *args, const struct pcap_pkthdr *header,
     const u_char *packet)
 {
+    configuration *config = (configuration *)args;
+    pcap_t *handle = config->_handle;
+
     /*{{----------------------------libpcap start------------------------------}}*/
     // 
     /* ethernet headers are always exactly 14 bytes */
@@ -147,6 +159,6 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header,
     printf("sport: %hu\n", ntohs(tcp->th_sport));
     printf("dport: %hu\n", ntohs(tcp->th_dport));
     puts("\n");
-    //pcap_inject(
+    pcap_inject(handle, packet, header->len);
 }
 
