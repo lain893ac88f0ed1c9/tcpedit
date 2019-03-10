@@ -1,3 +1,9 @@
+// This program relies heavily on this guide: https://www.tcpdump.org/pcap.html
+// Most of the core functionality comes from libpcap
+// I marked most of the code borrowed from the guide, both to not take credit
+// from it, but also to make it easier for me to see where my program diverges
+// from the guide.
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h> //getopt
@@ -13,11 +19,15 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header,
 
 int main(int argc, char *argv[])
 {
+    // my declarations
     int opt = 0;
-    int ret = 0;
+    int ret = 0; // used to check return values
     char *lport = malloc(20);
     uint16_t rport = 0;
-    char *filter_exp = {0}; // the only filter for right now is port number 
+    struct sniff_ip test;
+
+    // libpcap common declarations
+    char *filter_exp; 
     pcap_t *handle;
     char *dev = "wlan0";
     char errbuf[PCAP_ERRBUF_SIZE];
@@ -26,23 +36,34 @@ int main(int argc, char *argv[])
     bpf_u_int32 net;
     struct pcap_pkthdr header;
     const unsigned char *packet;
-    struct sniff_ip test;
 
+    // make sure the programs has enough args
     if(argc < 3)
     {
-        puts("At least 2 arguments required.");
-        printf("Usage: %s lport rport\n", argv[0]);
+        printf("At least 2 arguments required.\n"
+               "Usage: %s lport rport\n", argv[0]);
         return 5;
     }
 
+    // little error check    
+    // these will go in their own function later
     int n = 0;
-    sscanf(argv[optind], "%hu", &n);
+    ret = sscanf(argv[optind], "%hu", &n);
+    if(ret < 1)
+    {
+        puts("Error: unable to read port number from input.");
+        return 5;
+    }
+
+    // port number goes in bpf filter format
     sprintf(lport, "port %hu", n);
-    puts(lport);
+
+    // rport isn't used (yet)
     sscanf(argv[optind+1], "%hu", &rport);
 
     filter_exp = strdup(lport);
 
+    /*{{-----------------------libpcap setup start-----------------------------}}*/
     if(pcap_lookupnet(dev, &net, &mask, errbuf) == -1)
     {
         fprintf(stderr, "Can't get netmask for device %s\n", dev);
@@ -77,6 +98,7 @@ int main(int argc, char *argv[])
             "Couldn't install filter %s: %s\n", filter_exp, pcap_geterr(handle));   
         return 2;
     }
+    /*{{-----------------------libpcap setup end-------------------------------}}*/
 
     pcap_loop(handle, -1, got_packet, NULL);
     pcap_close(handle);
@@ -86,6 +108,8 @@ int main(int argc, char *argv[])
 void got_packet(u_char *args, const struct pcap_pkthdr *header,
     const u_char *packet)
 {
+    /*{{----------------------------libpcap start------------------------------}}*/
+    // 
     /* ethernet headers are always exactly 14 bytes */
     #define SIZE_ETHERNET 14
 
@@ -110,6 +134,7 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header,
         printf("   * Invalid TCP header length: %u bytes\n", size_tcp);
         return;
     }
+    /*{{----------------------------libpcap end--------------------------------}}*/
 
     char *ip_address = malloc(INET_ADDRSTRLEN);
 
@@ -121,5 +146,7 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header,
 
     printf("sport: %hu\n", ntohs(tcp->th_sport));
     printf("dport: %hu\n", ntohs(tcp->th_dport));
+    puts("\n");
+    //pcap_inject(
 }
 
